@@ -49,6 +49,7 @@ u8  IO_KeyState, IO_KeyState1, IO_KeyHoldCnt;	//行列键盘变量
 u8	KeyHoldCnt;	//键按下计时
 u8	KeyCode;	//给用户使用的键码, 1~16有效
 u8	cnt50ms;
+u8	try,able;
 
 u8	month,day,hour,minute,second;	//RTC变量
 u8  curr_input;
@@ -57,7 +58,7 @@ u8 	standard[] = {1, 2, 3, 4};
 u8  curr_show;  // 0显示时间，1显示日期，2显示温度
 u8  open;
 u16 year;
-u16	msecond, opentime;
+u16	msecond, opentime, trytime;
 
 
 /*************	本地函数声明	**************/
@@ -105,6 +106,7 @@ void main(void)
 	curr_show = 0;
 	curr_input = 0;
 	opentime = 0;
+	trytime = 0;
 	AUXR = 0x80;	//Timer0 set as 1T, 16 bits timer auto-reload, 
 	TH0 = (u8)(Timer0_Reload / 256);
 	TL0 = (u8)(Timer0_Reload % 256);
@@ -133,6 +135,8 @@ void main(void)
 
 	Display(curr_show);
 	open = 0;
+	try = 0;
+	able = 1;
 
 	KeyHoldCnt = 0;	//键按下计时
 	KeyCode = 0;	//给用户使用的键码, 1~16有效
@@ -151,6 +155,11 @@ void main(void)
 			if(opentime >= 2000) reKey();
 			if(opentime >= 9000) alert(2);
 			B_1ms = 0;
+			if(try > 0 && try < 5) trytime++;
+			if(trytime >= 20000){
+				  try = 0;
+				  trytime = 0;
+			} 
 			if(++msecond >= 1000)	//1秒到
 			{
 				msecond = 0;
@@ -170,22 +179,22 @@ void main(void)
 				if(KeyCode == 27)	curr_show = 0; // 时钟模式
 				if(KeyCode == 28)	curr_show = 1; // 日期模式
 				if(KeyCode == 29)	curr_show = 2; // 温度模式
-				if(KeyCode == 30 && curr_show != 3){   // 输入密码模式
+				if(KeyCode == 30 && curr_show != 3 && able == 1){   // 输入密码模式
 					curr_show = 3; 
 					curr_input = 0;
 				}	
-				if((KeyCode == 31 && curr_show != 4 && curr_show != 3) || (KeyCode == 31 && curr_show == 3 && curr_input == 0)){
+				if((KeyCode == 31 && curr_show != 4 && curr_show != 3 && able == 1) || (KeyCode == 31 && curr_show == 3 && curr_input == 0 && able == 1)){
 					curr_show = 4; 
 				   	curr_input = 0;
 				}
 		 
-				if(KeyCode >= 17 && KeyCode <= 26 && curr_show == 3 && curr_input < 4)	//输入密码
+				if(KeyCode >= 17 && KeyCode <= 26 && curr_show == 3 && curr_input < 4 && able == 1)	//输入密码
 				{
 					LED8[curr_input+4] = KeyCode - 17;
 					key[curr_input] = KeyCode - 17;
 					curr_input++;
 				}
-				if(KeyCode >= 17 && KeyCode <= 26 && curr_show == 4 && curr_input < 8)	//修改密码
+				if(KeyCode >= 17 && KeyCode <= 26 && curr_show == 4 && curr_input < 8 && able == 1)	//修改密码
 				{
 					LED8[curr_input] = KeyCode - 17;
 					key[curr_input] = KeyCode - 17;
@@ -194,51 +203,60 @@ void main(void)
 				else if(KeyCode >= 17 && KeyCode <= 20 && curr_show != 3){	// 时间和日期的调整
 					changing(KeyCode,curr_show);
 				}
-				if(KeyCode == 30 && curr_show == 3 && curr_input == 4){   // 输入密码模式，检测
+				if(KeyCode == 30 && curr_show == 3 && curr_input == 4 && able == 1){   // 输入密码模式，检测
 				   	if(standard[0] == key[0] && standard[1] == key[1]  && standard[2] == key[2] && standard[3] == key[3]){
 						P17 = 0;
 						P16 = 0;
 						P47 = 0;
 						P46 = 0;
 						open = 1;
+						try = 0;
 					}
 					else{
 						alert(1);
+						if(++try >= 5){
+							alert(4);
+						    able = 0;
+						}
 						curr_input = 0;
 					}
 				}
-				if(KeyCode == 31 && curr_show == 4 && curr_input == 8){   // 修改密码模式，检测
+				if(KeyCode == 31 && curr_show == 4 && curr_input == 8 && able == 1){   // 修改密码模式，检测
 				   	if(standard[0] == key[0] && standard[1] == key[1]  && standard[2] == key[2] && standard[3] == key[3]){
-						P17 = 0; P16 = 0;P47 = 0;P46 = 0;
+						try = 0;
+						reKey();
 						if(key[4] == 0 && key[5] == 0 && key[6] == 0 && key[7] == 0){
-							reKey();
 							alert(3);
 						}
 						else{
-							 standard[0] = key[4]; 
-							 standard[1] = key[5]; 
-							 standard[2] = key[6]; 
-							 standard[3] = key[7];
-							 delay_ms(1500);
-							 reKey(); 
-							 curr_show = 3;
+							P17 = 0; P16 = 0;P47 = 0;P46 = 0;
+							standard[0] = key[4]; 
+							standard[1] = key[5]; 
+							standard[2] = key[6]; 
+							standard[3] = key[7];
+							delay_ms(1500);							 
+							curr_show = 3;	 
 						}	
 					}
 					
 					else{
 						alert(1);
+						if(++try >= 5){
+							alert(4);
+							able = 0;
+						}
 						curr_input = 0;
 					}
 					
 				}					
 				if(KeyCode == 32){	  // 撤销+关门+门锁复位
 					
-					if(curr_show == 3 && curr_input > 0){
+					if(curr_show == 3 && curr_input > 0 && able == 1){
 						key[curr_input-1] = 0;
 						LED8[curr_input+3] = DIS_;
 						curr_input--;
 					}
-					else if(curr_show == 4 && curr_input > 0) {
+					else if(curr_show == 4 && curr_input > 0 && able == 1) {
 						key[curr_input-1] = 0;
 						LED8[curr_input-1] = DIS_;
 						curr_input--;
@@ -263,20 +281,8 @@ void main(void)
 } 
 /******************************/
 void	changeDate(void){
-	if(hour == 0 && minute == 0 && second == 0){
-		if(day == 31 && month == 12){
-			day = 1;
-			month = 1;
-			year++;
-		}
-		else if(day == day_num[month-1]){
-			month++;
-			day = 1;
-		}
-		else{
-			day++;
-		}
-	}
+	if(hour == 0 && minute == 0 && second == 0)
+		changing(19,1);
 }
 void	changing(u8 KeyCode, u8 curr_show){
 	if(curr_show == 0){
@@ -372,6 +378,27 @@ void alert(u8 _code){
 		P16 = 1;
 		P47 = 0;
 		P46 = 1;
+	}
+	if(_code == 4){
+		while(1)
+		{
+			P17 = 0;
+			delay_ms(250);
+			delay_ms(250);
+			P17 = 1;
+			P16 = 0;
+			delay_ms(250);
+			delay_ms(250);
+			P16 = 1;
+			P47 = 0;
+			delay_ms(250);
+			delay_ms(250);
+			P47 = 1;
+			P46 = 0;
+			delay_ms(250);
+			delay_ms(250);
+			P46 = 1;
+		}
 	}
 }
 

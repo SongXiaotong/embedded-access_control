@@ -27,10 +27,8 @@ void	ReadRTC(void)
 }
 
 /********************** Ð´RTCº¯Êý ************************/
-void	WriteRTC(void)
-{
+void	WriteRTC(void){
 	u8	tmp[3];
-
 	tmp[0] = ((second / 10) << 4) + (second % 10);
 	tmp[1] = ((minute / 10) << 4) + (minute % 10);
 	tmp[2] = ((hour / 10) << 4) + (hour % 10);
