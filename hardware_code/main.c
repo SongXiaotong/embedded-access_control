@@ -4,6 +4,7 @@
 
 
 
+
 /***********************************************************/
 
 #define DIS_DOT		0x20
@@ -60,6 +61,9 @@ u8  open;
 u16 year;
 u16	msecond, opentime, trytime;
 
+//记录当前状态
+u8 curr_state;   //0代表正常，关闭;1代表正常，开启；2代表异常，关闭（密码输错多次/异常情况）
+ 
 
 /*************	本地函数声明	**************/
 void	CalculateAdcKey(u16 adc);
@@ -105,6 +109,7 @@ void main(void)
 	display_index = 0;
 	curr_show = 0;
 	curr_input = 0;
+	curr_state = 0;
 	opentime = 0;
 	trytime = 0;
 	AUXR = 0x80;	//Timer0 set as 1T, 16 bits timer auto-reload, 
@@ -204,12 +209,13 @@ void main(void)
 					changing(KeyCode,curr_show);
 				}
 				if(KeyCode == 30 && curr_show == 3 && curr_input == 4 && able == 1){   // 输入密码模式，检测
-				   	if(standard[0] == key[0] && standard[1] == key[1]  && standard[2] == key[2] && standard[3] == key[3]){
+				   	if(standard[0] == key[0] && standard[1] == key[1]  && standard[2] == key[2] && standard[3] == key[3]){//密码正确
 						P17 = 0;
 						P16 = 0;
 						P47 = 0;
 						P46 = 0;
 						open = 1;
+						curr_state = 1;
 						try = 0;
 					}
 					else{
@@ -217,6 +223,7 @@ void main(void)
 						if(++try >= 5){
 							alert(4);
 						    able = 0;
+							curr_state = 2;
 						}
 						curr_input = 0;
 					}
@@ -235,7 +242,8 @@ void main(void)
 							standard[2] = key[6]; 
 							standard[3] = key[7];
 							delay_ms(1500);							 
-							curr_show = 3;	 
+							curr_show = 3;	
+							curr_state = 0;
 						}	
 					}
 					
@@ -244,6 +252,7 @@ void main(void)
 						if(++try >= 5){
 							alert(4);
 							able = 0;
+							curr_state = 2;
 						}
 						curr_input = 0;
 					}
@@ -265,6 +274,7 @@ void main(void)
 						open = 0;
 						reKey();
 						curr_show = 0;
+						curr_state = 0;
 					}
 	
 				}  
