@@ -33,6 +33,9 @@ u8 code t_display[]={						//标准字库
 u8 code T_COM[]={0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x80};		//位码
 u8 day_num[]={31,28,31,30,31,30,31,31,30,31,30,31};
 
+#define     Baudrate1           115200L
+#define     UART1_BUF_LENGTH    32
+
 /*************	IO口定义	**************/
 sbit	P_HC595_SER   = P4^0;	//pin 14	SER		data input
 sbit	P_HC595_RCLK  = P5^4;	//pin 12	RCLk	store (latch) clock
@@ -63,7 +66,13 @@ u16	msecond, opentime, trytime;
 
 //记录当前状态
 u8 curr_state;   //0代表正常，关闭;1代表正常，开启；2代表异常，关闭（密码输错多次/异常情况）
- 
+
+u8  TX1_Cnt;    //发送计数
+u8  RX1_Cnt;    //接收计数
+bit B_TX1_Busy; //发送忙标志
+u8  idata RX1_Buffer[UART1_BUF_LENGTH]; //接收缓冲
+u8* Send_String;
+
 
 /*************	本地函数声明	**************/
 void	CalculateAdcKey(u16 adc);
@@ -85,6 +94,9 @@ void	alert(u8 _code);
 void	delay_ms(u8 ms);
 u16		get_temperature(u16 adc);
 u16		Get_ADC10bitResult(u8 channel);	//channel = 0~7
+void    UART1_config(u8 brt);   // 选择波特率, 2: 使用Timer2做波特率, 其它值: 使用Timer1做波特率.
+void    PrintString1(u8 *puts);
+u8		*my_itoa(u16 n);
 										   
 /****************  外部函数声明和外部变量声明 *****************/
 
@@ -117,6 +129,8 @@ void main(void)
 	TL0 = (u8)(Timer0_Reload % 256);
 	ET0 = 1;	//Timer0 interrupt enable
 	TR0 = 1;	//Tiner0 run
+
+	UART1_config(1);    // 选择波特率, 2: 使用Timer2做波特率, 其它值: 使用Timer1做波特率.
 	EA = 1;		//打开总中断
 	
 	for(i=0; i<8; i++)	LED8[i] = 0x10;	//上电消隐
@@ -214,6 +228,16 @@ void main(void)
 						P16 = 0;
 						P47 = 0;
 						P46 = 0;
+						//开门后将小时、分钟、秒钟发送到log主机上
+						Send_String = my_itoa(hour);
+					    PrintString1(Send_String);   
+						PrintString1("s");   //空格 用于在接收端区分数字
+						Send_String = my_itoa(minute);
+						PrintString1(Send_String);
+						PrintString1("s");
+						Send_String = my_itoa(second);
+						PrintString1(Send_String);
+						PrintString1("s");
 						open = 1;
 						curr_state = 1;
 						try = 0;
@@ -242,7 +266,7 @@ void main(void)
 							standard[2] = key[6]; 
 							standard[3] = key[7];
 							delay_ms(1500);							 
-							curr_show = 3;	
+							curr_show = 3;	 
 							curr_state = 0;
 						}	
 					}
@@ -279,7 +303,7 @@ void main(void)
 	
 				}  
 
-				
+
 
 				Display(curr_show);
 				KeyCode = 0;
@@ -472,3 +496,152 @@ void  delay_ms(u8 ms)
      }while(--ms);
 }
 
+/*********************** 许延泽新增了四个通信函数 ****************/
+//========================================================================
+// 函数: SetTimer2Baudraye(u16 dat)
+// 描述: 设置Timer2做波特率发生器。
+// 参数: dat: Timer2的重装值.
+// 返回: none.
+// 版本: VER1.0
+// 日期: 2014-11-28
+// 备注: 
+//========================================================================
+void    SetTimer2Baudraye(u16 dat)  // 选择波特率, 2: 使用Timer2做波特率, 其它值: 使用Timer1做波特率.
+{
+    AUXR &= ~(1<<4);    //Timer stop
+    AUXR &= ~(1<<3);    //Timer2 set As Timer
+    AUXR |=  (1<<2);    //Timer2 set as 1T mode
+    TH2 = dat / 256;
+    TL2 = dat % 256;
+    IE2  &= ~(1<<2);    //禁止中断
+    AUXR |=  (1<<4);    //Timer run enable
+}
+
+//========================================================================
+// 函数: void   UART1_config(u8 brt)
+// 描述: UART1初始化函数。
+// 参数: brt: 选择波特率, 2: 使用Timer2做波特率, 其它值: 使用Timer1做波特率.
+// 返回: none.
+// 版本: VER1.0
+// 日期: 2014-11-28
+// 备注: 
+//========================================================================
+void    UART1_config(u8 brt)    // 选择波特率, 2: 使用Timer2做波特率, 其它值: 使用Timer1做波特率.
+{
+    /*********** 波特率使用定时器2 *****************/
+    if(brt == 2)
+    {
+        AUXR |= 0x01;       //S1 BRT Use Timer2;
+        SetTimer2Baudraye(65536UL - (MAIN_Fosc / 4) / Baudrate1);
+    }
+
+    /*********** 波特率使用定时器1 *****************/
+    else
+    {
+        TR1 = 0;
+        AUXR &= ~0x01;      //S1 BRT Use Timer1;
+        AUXR |=  (1<<6);    //Timer1 set as 1T mode
+        TMOD &= ~(1<<6);    //Timer1 set As Timer
+        TMOD &= ~0x30;      //Timer1_16bitAutoReload;
+        TH1 = (u8)((65536UL - (MAIN_Fosc / 4) / Baudrate1) / 256);
+        TL1 = (u8)((65536UL - (MAIN_Fosc / 4) / Baudrate1) % 256);
+        ET1 = 0;    //禁止中断
+        INT_CLKO &= ~0x02;  //不输出时钟
+        TR1  = 1;
+    }
+    /*************************************************/
+
+    SCON = (SCON & 0x3f) | 0x40;    //UART1模式, 0x00: 同步移位输出, 0x40: 8位数据,可变波特率, 0x80: 9位数据,固定波特率, 0xc0: 9位数据,可变波特率
+//  PS  = 1;    //高优先级中断
+    ES  = 1;    //允许中断
+    REN = 1;    //允许接收
+    P_SW1 &= 0x3f;
+    P_SW1 |= 0x80;      //UART1 switch to, 0x00: P3.0 P3.1, 0x40: P3.6 P3.7, 0x80: P1.6 P1.7 (必须使用内部时钟)
+//  PCON2 |=  (1<<4);   //内部短路RXD与TXD, 做中继, ENABLE,DISABLE
+
+    B_TX1_Busy = 0;
+    TX1_Cnt = 0;
+    RX1_Cnt = 0;
+}
+
+
+void PrintString1(u8 *puts) //使用uart1发送一个字符串
+{
+    for (; *puts != 0;  puts++)     //遇到停止符0结束
+    {
+        SBUF = *puts;
+        B_TX1_Busy = 1;
+        while(B_TX1_Busy);
+    }
+}
+
+//========================================================================
+// 函数: void UART1_int (void) interrupt UART1_VECTOR
+// 描述: UART1中断函数。
+// 参数: nine.
+// 返回: none.
+// 版本: VER1.0
+// 日期: 2014-11-28
+// 备注: 
+//========================================================================
+void UART1_int (void) interrupt 4
+{
+    if(RI)
+    {
+        RI = 0;
+        RX1_Buffer[RX1_Cnt] = SBUF;
+        if(++RX1_Cnt >= UART1_BUF_LENGTH)   RX1_Cnt = 0;    //防溢出
+    }
+
+    if(TI)
+    {
+        TI = 0;
+        B_TX1_Busy = 0;
+    }
+}
+
+//反转字符串
+u8 *reverse(u8 *s)
+{
+    u8 temp;
+    u8 *p = s;    //p指向s的头部
+    u8 *q = s;    //q指向s的尾部
+    while(*q)
+        ++q;
+    q--;
+    
+    //交换移动指针，直到p和q交叉
+    while(q > p)
+    {
+        temp = *p;
+        *p++ = *q;
+        *q-- = temp;
+    }
+    return s;
+}
+
+/*
+ * 功能：整数转换为字符串
+ * char s[] 的作用是存储整数的每一位
+ */
+u8 *my_itoa(u16 n)
+{
+    int i = 0,isNegative = 0;
+    static u8 s[10];      //必须为static变量，或者是全局变量
+    if((isNegative = n) < 0) //如果是负数，先转为正数
+    {
+        n = -n;
+    }
+    do      //从各位开始变为字符，直到最高位，最后应该反转
+    {
+        s[i++] = n%10 + '0';
+        n = n/10;
+    }while(n > 0);
+    
+    if(isNegative < 0)   //如果是负数，补上负号
+    {
+        s[i++] = '-';
+    }
+    s[i] = '\0';    //最后加上字符串结束符
+    return reverse(s);
+}
